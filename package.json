@@ -1,0 +1,36 @@
+{
+  "name": "registration-form",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "parcel index.html",
+    "build": "parcel build index.html",
+    "test": "NODE_OPTIONS=--experimental-vm-modules npx jest --colors"
+  },
+  "jest": {
+    "testEnvironment": "jsdom"
+  },
+  "dependencies": {
+    "@testing-library/dom": "*",
+    "@testing-library/jest-dom": "*",
+    "@testing-library/user-event": "*",
+    "axios": "*",
+    "core-js": "*",
+    "lodash": "*",
+    "nock": "*",
+    "on-change": "*",
+    "prettier": "*",
+    "regenerator-runtime": "*",
+    "yup": "*"
+  },
+  "devDependencies": {
+    "buffer": "^6.0.3",
+    "parcel": "^2.9.3",
+    "prettier": "2.8.8",
+    "process": "^0.11.10"
+  },
+  "author": "",
+  "license": "ISC"
+}
