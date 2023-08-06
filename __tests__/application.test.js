@@ -35,32 +35,32 @@ test('submit disabled', async () => {
   expect(elements.emailInput).not.toHaveClass('is-invalid');
   expect(elements.passwordInput).not.toHaveClass('is-invalid');
 
-  await userEvent.type(elements.nameInput, 'Petya');
-  await userEvent.type(elements.emailInput, 'wrong-email');
-  await userEvent.type(elements.passwordInput, 'long password without confirmation');
+  await userEvent.default.type(elements.nameInput, 'Petya');
+  await userEvent.default.type(elements.emailInput, 'wrong-email');
+  await userEvent.default.type(elements.passwordInput, 'long password without confirmation');
 
   expect(screen.getByRole('button', { selector: '[type="submit"]' })).toBeDisabled();
   expect(elements.emailInput).toHaveClass('is-invalid');
   expect(screen.queryByText('email must be a valid email')).toBeInTheDocument();
 
-  await userEvent.clear(elements.passwordInput);
-  await userEvent.type(elements.passwordInput, 'qwert');
+  await userEvent.default.clear(elements.passwordInput);
+  await userEvent.default.type(elements.passwordInput, 'qwert');
   expect(elements.passwordInput).toHaveClass('is-invalid');
   expect(screen.queryByText('password must be at least 6 characters')).toBeInTheDocument();
 
   expect(screen.getByRole('button', { selector: '[type="submit"]' })).toBeDisabled();
 
-  await userEvent.type(elements.emailInput, 'support@hexlet.io');
-  await userEvent.clear(elements.passwordInput);
-  await userEvent.type(elements.passwordInput, 'qwerty');
-  await userEvent.clear(elements.passwordConfirmationInput);
-  await userEvent.type(elements.passwordConfirmationInput, 'qwerty');
+  await userEvent.default.type(elements.emailInput, 'support@hexlet.io');
+  await userEvent.default.clear(elements.passwordInput);
+  await userEvent.default.type(elements.passwordInput, 'qwerty');
+  await userEvent.default.clear(elements.passwordConfirmationInput);
+  await userEvent.default.type(elements.passwordConfirmationInput, 'qwerty');
 
   const scope = nock('http://localhost')
     .post('/users')
     .reply(200);
 
-  await userEvent.click(elements.submit);
+  await userEvent.default.click(elements.submit);
   await waitFor(() => {
     expect(document.body).toHaveTextContent('User Created');
   });
