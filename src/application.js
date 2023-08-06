@@ -1,25 +1,38 @@
 // @ts-check
 /* eslint-disable no-param-reassign, no-console  */
 
-
+import keyBy from 'lodash/keyBy.js';
+import has from 'lodash/has.js';
+import isEmpty from 'lodash/isEmpty.js';
+import * as yup from 'yup';
+import onChange from 'on-change';
 import axios from 'axios';
-import { addHandlerForInputs, addHandlerForSubmit, renderConfig, render } from './view';
-import Model from './Model';
-// urls нельзя хардкодить: https://ru.hexlet.io/blog/posts/izbavlyaytes-ot-strok
-
-// BEGIN (write your solution here)
 
 const routes = {
   usersPath: () => '/users',
 };
 
-const urls = {
-  usersUrl: () =>
-    'https://web-js-frontend-architecture-forms-5904133.evaluator2-5.hexlet.io/',
-};
+const schema = yup.object().shape({
+  name: yup.string().trim().required(),
+  email: yup.string().required('email must be a valid email').email(),
+  password: yup.string().required().min(6),
+  passwordConfirmation: yup
+    .string()
+    .required('password confirmation is a required field')
+    .oneOf(
+      [yup.ref('password'), null],
+      'password confirmation does not match to password'
+    ),
+});
 
-const BASE_URL =
-  process.env.NODE_ENV === 'test' ? 'http://localhost' : urls.usersUrl();
+const validate = fields => {
+  try {
+    schema.validateSync(fields, { abortEarly: false });
+    return {};
+  } catch (e) {
+    return keyBy(e.inner, 'path');
+  }
+};
 
 const errorMessages = {
   network: {
@@ -27,71 +40,196 @@ const errorMessages = {
   },
 };
 
-// ========== CONTROLLER ============
-export function handleChange(path, value) {
-  const [formSection, property] = path.split('.');
-  const config = renderConfig[property];
+// BEGIN
+const renderFormProcessStatus = (elements, processState) => {
+  switch (processState) {
+    case 'sent':
+      elements.container.innerHTML = 'User Created!';
+      break;
 
-  if (formSection === 'isTouched') return;
+    case 'error':
+      elements.submitButton.disabled = false;
+      break;
 
-  switch (formSection) {
-    case 'formData':
-      render(property, value, config.action);
+    case 'sending':
+      elements.submitButton.disabled = true;
       break;
-    case 'errors':
-      render(property, value, config.errorAction);
+
+    case 'filling':
+      elements.submitButton.disabled = false;
       break;
-    case 'form':
-      render(property, value, config.action);
-      break;
+
     default:
-      return;
+      // https://ru.hexlet.io/blog/posts/sovershennyy-kod-defolty-v-svitchah
+      throw new Error(`Unknown process state: ${processState}`);
   }
-}
+};
 
-async function handleInput(model, e) {
-  const targetElement = e.target;
+const renderFormSubmissionError = (elements, state) => {
+  // вывести сообщение о сетевой ошибке
+  elements.container.innerHTML = state.signupProcess.processError;
+};
 
-  if (
-    !targetElement.matches('input') ||
-    targetElement.matches('[type="submit"]')
-  )
+const renderError = (fieldElement, error) => {
+  // Простой способ: очищать контейнер полностью перерисовывая его
+  // Более сложный способ, с оптимизацией: если элемент существует, то заменять контент
+  // Если элемент не существует, то создаём новый. Всё это является частью отрисовки
+  const feedbackElement = fieldElement.nextElementSibling;
+  if (feedbackElement) {
+    feedbackElement.textContent = error.message;
     return;
+  }
 
-  const inputName = targetElement.getAttribute('name');
-  const inputValue = targetElement.value.trim();
+  fieldElement.classList.add('is-invalid');
+  const newFeedbackElement = document.createElement('div');
+  newFeedbackElement.classList.add('invalid-feedback');
+  newFeedbackElement.textContent = error.message;
+  fieldElement.after(newFeedbackElement);
+};
 
-  await model.updateInputState(inputName, inputValue);
-}
+const renderErrors = (elements, errors, prevErrors, state) => {
+  Object.entries(elements.fields).forEach(([fieldName, fieldElement]) => {
+    const error = errors[fieldName];
+    // правильный путь - проверять модель, а не DOM. Модель - единый источник правды.
+    const fieldHadError = has(prevErrors, fieldName);
+    const fieldHasError = has(errors, fieldName);
+    if (!fieldHadError && !fieldHasError) {
+      return;
+    }
 
-async function handleSubmit(model, e) {
+    if (fieldHadError && !fieldHasError) {
+      fieldElement.classList.remove('is-invalid');
+      fieldElement.nextElementSibling.remove();
+      return;
+    }
+
+    if (state.form.fieldsUi.touched[fieldName] && fieldHasError) {
+      renderError(fieldElement, error);
+    }
+  });
+};
+
+const renderSubmitBtn = (elements, value) => {
+  elements.submitButton.disabled = !value;
+};
+
+// Представление не меняет модель.
+// По сути, в представлении происходит отображение модели на страницу
+// Для оптимизации рендер происходит точечно в зависимости от того, какая часть модели изменилась
+// Функция возвращает функцию. Подробнее: https://ru.hexlet.io/qna/javascript/questions/chto-oznachaet-funktsiya-vida-const-render-a-b
+const render = (elements, initialState) => (path, value, prevValue) => {
+  switch (path) {
+    case 'signupProcess.processState':
+      renderFormProcessStatus(elements, value);
+      break;
+
+    case 'signupProcess.processError':
+      renderFormSubmissionError(elements, initialState);
+      break;
+
+    case 'form.valid':
+      renderSubmitBtn(elements, value);
+      break;
+
+    case 'form.errors':
+      renderErrors(elements, value, prevValue, initialState);
+      break;
+
+    default:
+      break;
+  }
+};
+
+const handleFieldInput = (state, fieldName, e) => {
+  const { value } = e.target;
+
+  state.form.fields[fieldName] = value;
+
+  state.form.fieldsUi.touched[fieldName] = true;
+
+  const errors = validate(state.form.fields);
+
+  state.form.errors = errors;
+
+  state.form.valid = isEmpty(errors);
+
+  // console.log('state', JSON.stringify(state, null, '  '));
+};
+
+const handleSubmit = async (state, e) => {
   e.preventDefault();
-  model.updateFormState('isSubmitting', true);
+
+  state.signupProcess.processState = 'sending';
+  state.signupProcess.processError = null;
 
   try {
-    await createUser(model.formData);
-    model.updateFormState('isSubmitted', true);
-    model.updateFormState('isSubmitting', false);
-  } catch (e) {
-    console.log(e.message);
-    model.updateFormState('isErrorOnSubmit', true);
-    model.updateFormState('isSubmitted', false);
-    model.updateFormState('isSubmitting', false);
+    const data = {
+      name: state.form.fields.name,
+      email: state.form.fields.email,
+      password: state.form.fields.password,
+    };
+    await axios.post(routes.usersPath(), data);
+    state.signupProcess.processState = 'sent';
+  } catch (err) {
+    // в реальных приложениях необходимо помнить об обработке ошибок сети
+    state.signupProcess.processState = 'error';
+    state.signupProcess.processError = errorMessages.network.error;
+    throw err;
   }
-}
+};
 
-async function createUser(data) {
-  const url = new URL(routes.usersPath(), BASE_URL);
+export default () => {
+  const elements = {
+    container: document.querySelector('[data-container="sign-up"]'),
+    form: document.querySelector('[data-form="sign-up"]'),
+    fields: {
+      name: document.getElementById('sign-up-name'),
+      email: document.getElementById('sign-up-email'),
+      password: document.getElementById('sign-up-password'),
+      passwordConfirmation: document.getElementById(
+        'sign-up-password-confirmation'
+      ),
+    },
+    submitButton: document.querySelector('input[type="submit"]'),
+  };
 
-  const response = await axios.post(url.href, data);
+  // Модель ничего не знает о контроллерах и о представлении. В ней не хранятся DOM-элементы.
+  const initialState = {
+    signupProcess: {
+      processState: 'filling',
+      processError: null,
+    },
+    form: {
+      valid: true,
+      errors: {},
+      fields: {
+        name: '',
+        email: '',
+        password: '',
+        passwordConfirmation: '',
+      },
+      fieldsUi: {
+        touched: {
+          name: false,
+          email: false,
+          password: false,
+          passwordConfirmation: false,
+        },
+      },
+    },
+  };
 
-  return response;
-}
+  const state = onChange(initialState, render(elements, initialState));
 
-export default function app() {
-  const model = new Model();
+  // Контроллеры меняют модель, тем самым вызывая рендеринг.
+  // Контроллеры не должны менять DOM напрямую, минуя представление.
+  Object.entries(elements.fields).forEach(([fieldName, fieldElement]) => {
+    fieldElement.addEventListener(
+      'input',
+      handleFieldInput.bind(null, state, fieldName)
+    );
+  });
 
-  addHandlerForInputs(model, handleInput);
-  addHandlerForSubmit(model, handleSubmit);
-}
+  elements.form.addEventListener('submit', handleSubmit.bind(null, state));
+};
 // END
